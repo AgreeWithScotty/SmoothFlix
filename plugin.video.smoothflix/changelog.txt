@@ -1,0 +1,3 @@
+v0.1.0 (2026-11-19)
+- First release.
+- Home menu, cached listings, and playback through plugin.video.netflix.

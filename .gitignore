@@ -1,0 +1,4 @@
+__pycache__/
+*.py[cod]
+kodi-addon-checker.log
+*.log
