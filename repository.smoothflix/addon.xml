@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<addon id="repository.smoothflix" name="SmoothFlix Repository" version="1.0.0" provider-name="Scott">
+  <extension point="xbmc.addon.repository" name="SmoothFlix Repository">
+    <dir>
+      <info compressed="false">https://raw.githubusercontent.com/AgreeWithScotty/SmoothFlix/main/addons.xml</info>
+      <checksum>https://raw.githubusercontent.com/AgreeWithScotty/SmoothFlix/main/addons.xml.md5</checksum>
+      <datadir zip="true">https://raw.githubusercontent.com/AgreeWithScotty/SmoothFlix/main</datadir>
+    </dir>
+  </extension>
+  <extension point="xbmc.addon.metadata">
+    <summary lang="en_GB">Install and update SmoothFlix</summary>
+    <description lang="en_GB">Official repository for the SmoothFlix add-on. Install this once from a zip file, then install SmoothFlix from Kodi's add-on browser. Updates are published from this repository.</description>
+    <platform>all</platform>
+    <license>GPL-3.0-only</license>
+    <source>https://github.com/AgreeWithScotty/SmoothFlix</source>
+    <news>v1.0.0 (2026-11-19)[CR]- Initial SmoothFlix repository.</news>
+    <assets>
+      <icon>icon.png</icon>
+      <fanart>fanart.jpg</fanart>
+    </assets>
+  </extension>
+</addon>

@@ -1,0 +1,81 @@
+# Kodi Media Center language file
+# Addon Name: SmoothFlix
+# Addon id: plugin.video.smoothflix
+# Addon Provider: Scott
+msgid ""
+msgstr ""
+"Project-Id-Version: SmoothFlix\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-11-19 00:00+0000\n"
+"PO-Revision-Date: 2026-11-19 00:00+0000\n"
+"Last-Translator: Scott\n"
+"Language-Team: English (United Kingdom)\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: en_GB\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgctxt "#32001"
+msgid "Listings"
+msgstr "Listings"
+
+msgctxt "#32002"
+msgid "Saved lists open again from disk until they expire."
+msgstr "Saved lists open again from disk until they expire."
+
+msgctxt "#32003"
+msgid "Keep listings cached (minutes)"
+msgstr "Keep listings cached (minutes)"
+
+msgctxt "#32004"
+msgid "Minutes to reuse a list. 0 always fetches it again."
+msgstr "Minutes to reuse a list. 0 always fetches it again."
+
+msgctxt "#32005"
+msgid "Clear listing cache"
+msgstr "Clear listing cache"
+
+msgctxt "#32006"
+msgid "Delete saved lists so the next open fetches them again."
+msgstr "Delete saved lists so the next open fetches them again."
+
+msgctxt "#32010"
+msgid "Account"
+msgstr "Account"
+
+msgctxt "#32011"
+msgid "Stored only in this Kodi profile."
+msgstr "Stored only in this Kodi profile."
+
+msgctxt "#32012"
+msgid "Email"
+msgstr "Email"
+
+msgctxt "#32013"
+msgid "Netflix email for this device."
+msgstr "Netflix email for this device."
+
+msgctxt "#32014"
+msgid "Password"
+msgstr "Password"
+
+msgctxt "#32015"
+msgid "Stored in this Kodi profile and sent only when signing in."
+msgstr "Stored in this Kodi profile and sent only when signing in."
+
+msgctxt "#32016"
+msgid "Sign out"
+msgstr "Sign out"
+
+msgctxt "#32017"
+msgid "Forget the saved session on this device."
+msgstr "Forget the saved session on this device."
+
+msgctxt "#32020"
+msgid "Classic list"
+msgstr "Classic list"
+
+msgctxt "#32021"
+msgid "Use the standard Kodi directory instead of Aurora Cinema."
+msgstr "Use the standard Kodi directory instead of Aurora Cinema."
