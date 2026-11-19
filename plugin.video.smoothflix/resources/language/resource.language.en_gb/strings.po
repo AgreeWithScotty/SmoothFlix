@@ -71,3 +71,11 @@ msgstr "Sign out"
 msgctxt "#32017"
 msgid "Forget the saved session on this device."
 msgstr "Forget the saved session on this device."
+
+msgctxt "#32020"
+msgid "Classic list"
+msgstr "Classic list"
+
+msgctxt "#32021"
+msgid "Use the standard Kodi directory instead of Aurora Cinema."
+msgstr "Use the standard Kodi directory instead of Aurora Cinema."

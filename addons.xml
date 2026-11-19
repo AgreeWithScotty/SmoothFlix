@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <addons>
-<addon id="plugin.video.smoothflix" name="SmoothFlix" version="0.2.0" provider-name="Scott">
+<addon id="plugin.video.smoothflix" name="SmoothFlix" version="0.3.0" provider-name="Scott">
   <requires>
     <import addon="xbmc.python" version="3.0.1"/>
     <import addon="inputstream.adaptive" version="21.5.0"/>
@@ -15,12 +15,12 @@
   <extension point="xbmc.addon.metadata">
     <reuselanguageinvoker>true</reuselanguageinvoker>
     <summary lang="en_GB">Netflix catalogue and playback for your own account</summary>
-    <description lang="en_GB">SmoothFlix signs in with your Netflix account, keeps the session on this device, and lists Continue Watching, My List, Trending, New Releases, Popular, TV, Movies and Search. Playback uses inputstream.adaptive and Widevine. The picture stays encrypted until the CDM unlocks it.</description>
+    <description lang="en_GB">SmoothFlix signs in with your Netflix account and plays through inputstream.adaptive and Widevine. Aurora Cinema is the home, title and player screen: near-black, type-led, with artwork loaded by Kodi. A classic directory list is in the settings.</description>
     <disclaimer lang="en_GB">Uses your own Netflix account. Video is played with Kodi inputstream.adaptive and Widevine. No other sources are used.</disclaimer>
     <platform>all</platform>
     <license>GPL-3.0-only</license>
     <source>https://github.com/AgreeWithScotty/SmoothFlix</source>
-    <news>v0.2.0 (2026-11-19)[CR]- Standalone sign-in, catalogue and Widevine playback.[CR]- Removed the Netflix add-on dependency.</news>
+    <news>v0.3.0 (2026-11-19)[CR]- Aurora Cinema home, title page and player overlay.[CR]- Classic directory list remains available in settings.</news>
     <assets>
       <icon>icon.png</icon>
       <fanart>fanart.jpg</fanart>

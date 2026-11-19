@@ -7,8 +7,11 @@ import traceback
 from urllib.parse import parse_qsl, urlparse
 
 import xbmc
+import xbmcaddon
 import xbmcgui
 import xbmcplugin
+
+from resources.lib.nf.const import ADDON_ID
 
 from resources.lib import cache, items
 from resources.lib.nf import auth, browse
@@ -60,7 +63,12 @@ def _cached(key, refresh, fn):
 
 
 def show_root(handle, _params):
-    items.show_home(handle)
+    if xbmcaddon.Addon(ADDON_ID).getSettingBool('classic'):
+        items.show_home(handle)
+        return
+    from resources.lib.aurora import open_home
+    open_home()
+    xbmcplugin.endOfDirectory(handle, succeeded=False)
 
 
 def show_list(handle, params):
@@ -136,7 +144,7 @@ def play(handle, params):
     if not video_id:
         xbmcplugin.setResolvedUrl(handle, False, xbmcgui.ListItem())
         return
-    item = listitem(video_id)
+    item = listitem(video_id, params.get('title') or '', params.get('meta') or '')
     xbmcplugin.setResolvedUrl(handle, True, item)
 
 

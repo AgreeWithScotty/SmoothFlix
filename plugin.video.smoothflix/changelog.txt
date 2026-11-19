@@ -1,3 +1,8 @@
+v0.3.0 (2026-11-19)
+- Aurora Cinema home, title page and player overlay, drawn by the add-on.
+- Focus changes the hero art with Kodi's image fade and a charcoal tint.
+- Classic directory list remains available in settings.
+
 v0.2.0 (2026-11-19)
 - Sign in with your own Netflix account and keep the session in this add-on's profile.
 - Catalogue rows, search, seasons and episodes are loaded directly and cached on disk.

@@ -2,6 +2,8 @@
 
 SmoothFlix is a Kodi 21 add-on that signs in to your own Netflix account, lists the usual rows, and plays through inputstream.adaptive and Widevine. The picture stays encrypted until the CDM unlocks it.
 
+Aurora Cinema is the screen that opens with the add-on: a near-black home, a title page, and a player overlay, drawn by SmoothFlix itself. Settings has a classic directory list if you want the ordinary Kodi view.
+
 It does not depend on any other Netflix add-on.
 
 ## Install

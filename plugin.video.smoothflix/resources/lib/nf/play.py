@@ -110,14 +110,20 @@ def _widevine_ready():
         raise PlaybackError('Widevine or inputstream.adaptive is not available.')
 
 
-def listitem(video_id):
+def listitem(video_id, title='', meta=''):
     """ListItem whose path and license URL point at the local playback service."""
     _widevine_ready()
     port = read_port()
     if not port:
         raise PlaybackError(
             'The SmoothFlix playback service is not running. Restart Kodi and try again.')
-    _write_json('playback.json', {'id': str(video_id)})
+    record = _read_json('playback.json') or {}
+    record['id'] = str(video_id)
+    if title:
+        record['title'] = title
+    if meta:
+        record['meta'] = meta
+    _write_json('playback.json', record)
     import xbmcgui
     url = 'http://127.0.0.1:%s/manifest' % port
     item = xbmcgui.ListItem(path=url)
@@ -178,8 +184,29 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(500, str(exc), 'text/plain')
 
 
+def _serve_http(server):
+    monitor = xbmc.Monitor()
+    while not monitor.abortRequested():
+        try:
+            server.handle_request()
+        except socket.timeout:
+            continue
+    server.server_close()
+
+
+def _playing_ours(player):
+    if not player.isPlaying():
+        return False
+    try:
+        name = player.getPlayingFile() or ''
+    except Exception:
+        return False
+    return name.startswith('http://127.0.0.1:') and '/manifest' in name
+
+
 def serve():
     """Block as the add-on service. Only 127.0.0.1 can connect."""
+    import threading
     server = ThreadingHTTPServer(('127.0.0.1', 0), _Handler)
     server.timeout = 0.5
     port = server.server_address[1]
@@ -189,10 +216,18 @@ def serve():
     finally:
         handle.close()
     log('playback service on 127.0.0.1:%s' % port)
+    threading.Thread(target=_serve_http, args=(server,), daemon=True).start()
+    from resources.lib.aurora import playback_overlay
     monitor = xbmc.Monitor()
+    player = xbmc.Player()
+    overlay = None
     while not monitor.abortRequested():
-        try:
-            server.handle_request()
-        except socket.timeout:
-            continue
-    server.server_close()
+        if _playing_ours(player):
+            if overlay is None:
+                overlay = playback_overlay()
+            overlay.tick(player)
+        elif overlay is not None:
+            overlay.close()
+            overlay = None
+        if monitor.waitForAbort(0.5):
+            break

@@ -153,6 +153,7 @@ def _video(node):
         'season': _whole(summary.get('season') or node.get('season')),
         'episode': _whole(summary.get('episode') or node.get('episode')),
         'show_id': str(summary.get('showId') or summary.get('parentShowId') or ''),
+        'progress': _progress(node.get('bookmark') or summary.get('bookmark')),
     }
 
 
@@ -175,6 +176,7 @@ def _genre(node):
         'season': 0,
         'episode': 0,
         'show_id': '',
+        'progress': 0,
     }
 
 
@@ -195,6 +197,31 @@ def _year(value):
         return int(value)
     except (TypeError, ValueError):
         return 0
+
+
+def _progress(bookmark):
+    if isinstance(bookmark, dict) and isinstance(bookmark.get('value'), dict):
+        bookmark = bookmark['value']
+    if not isinstance(bookmark, dict):
+        return 0
+    percent = bookmark.get('percentage')
+    if percent is None:
+        percent = bookmark.get('percent')
+    if percent is not None:
+        try:
+            return max(0, min(100, int(float(percent))))
+        except (TypeError, ValueError):
+            return 0
+    offset = bookmark.get('offset')
+    if offset is None:
+        offset = bookmark.get('position')
+    runtime = bookmark.get('runtime') or bookmark.get('total')
+    try:
+        if offset is not None and runtime:
+            return max(0, min(100, int(100 * float(offset) / float(runtime))))
+    except (TypeError, ValueError, ZeroDivisionError):
+        return 0
+    return 0
 
 
 def _whole(value):

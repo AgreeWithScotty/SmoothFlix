@@ -37,6 +37,7 @@ CONTINUE = {
         {
             'summary': {'id': '80057281', 'type': 'show', 'title': 'Harbor Lights', 'releaseYear': 2021},
             'synopsis': 'A coastal town keeps a secret schedule.',
+            'bookmark': {'offset': 320, 'runtime': 1000},
             'boxarts': {'_342x684': {'url': 'https://example.com/art/harbor-poster.jpg'}},
         },
         {
@@ -216,6 +217,9 @@ class InfoTag(object):
     def setEpisode(self, value):
         self.data['episode'] = value
 
+    def setResumePoint(self, position, total=0):
+        self.data['resume'] = (position, total)
+
 
 class ListItem(object):
     def __init__(self, label='', label2='', path='', offscreen=False):
@@ -247,6 +251,12 @@ class ListItem(object):
     def setContentLookup(self, enabled):
         self.lookup = enabled
 
+    def getLabel(self):
+        return self.label
+
+    def getProperty(self, key):
+        return self.properties.get(key, '')
+
 
 class Keyboard(object):
     def __init__(self, default='', heading='', hidden=False):
@@ -275,6 +285,93 @@ class Monitor(object):
     def abortRequested(self):
         return False
 
+    def waitForAbort(self, seconds=0):
+        import time
+        time.sleep(0.02)
+        return False
+
+
+class Player(object):
+    def isPlaying(self):
+        return False
+
+    def getPlayingFile(self):
+        return ''
+
+    def getTime(self):
+        return 0
+
+    def getTotalTime(self):
+        return 0
+
+
+class FakeControl(object):
+    def __init__(self):
+        self.items = []
+        self.percent = 0
+        self.color = ''
+        self.position = 0
+
+    def reset(self):
+        self.items = []
+
+    def addItem(self, item):
+        self.items.append(item)
+
+    def size(self):
+        return len(self.items)
+
+    def getListItem(self, index):
+        return self.items[index]
+
+    def getSelectedItem(self):
+        return self.items[self.position] if self.items else None
+
+    def getSelectedPosition(self):
+        return self.position
+
+    def setPercent(self, value):
+        self.percent = value
+
+    def setColorDiffuse(self, color):
+        self.color = color
+
+
+class WindowXML(object):
+    opened = []
+
+    def __init__(self, xml, path, skin, res):
+        self.xml = xml
+        self.properties = {}
+        self.controls = {}
+
+    def setProperty(self, key, value):
+        self.properties[key] = value
+
+    def getProperty(self, key):
+        return self.properties.get(key, '')
+
+    def getControl(self, control_id):
+        return self.controls.setdefault(control_id, FakeControl())
+
+    def setFocusId(self, control_id):
+        self.focus = control_id
+
+    def doModal(self):
+        WindowXML.opened.append(self)
+        self.onInit()
+
+    def show(self):
+        self.shown = True
+
+    def close(self):
+        self.closed = True
+
+
+class WindowXMLDialog(WindowXML):
+    def __init__(self, *args):
+        WindowXML.__init__(self, *args)
+
 
 class Addon(object):
     settings = {'email': 'ada@example.com', 'password': 'secret', 'cache_minutes': '30'}
@@ -300,6 +397,9 @@ class Addon(object):
             return int(self.settings.get(key, '0'))
         except ValueError:
             return 0
+
+    def getSettingBool(self, key):
+        return str(self.settings.get(key, 'false')).lower() == 'true'
 
     def setSetting(self, key, value):
         self.settings[key] = value
@@ -329,10 +429,13 @@ def install_stubs():
     xbmc.builtins = []
     xbmc.Keyboard = Keyboard
     xbmc.Monitor = Monitor
+    xbmc.Player = Player
 
     gui = type(sys)('xbmcgui')
     gui.ListItem = ListItem
     gui.Dialog = Dialog
+    gui.WindowXML = WindowXML
+    gui.WindowXMLDialog = WindowXMLDialog
     gui.NOTIFICATION_INFO = 'info'
     gui.NOTIFICATION_ERROR = 'error'
 
@@ -490,18 +593,6 @@ def main():
     dump('profiles', plugin)
     check(any(item.label == 'Ada' for _url, item, _folder in plugin.ITEMS), 'profile list should include Ada')
 
-    plugin.ITEMS.clear()
-    plugin.CONTENT.clear()
-    run(['plugin://plugin.video.smoothflix/', '2', ''])
-    dump('root', plugin)
-    check(plugin.CONTENT[-1] == 'images', 'root content should be images')
-    labels = [item.label for _url, item, _folder in plugin.ITEMS]
-    for name in ('Continue Watching', 'My List', 'Trending', 'New Releases', 'Popular',
-                 'TV Shows', 'Movies', 'Search', 'Profiles', 'Sign out'):
-        check(name in labels, 'root missing %s' % name)
-    check(all('plugin.video.netflix' not in url for url, _item, _folder in plugin.ITEMS),
-          'root must not point at plugin.video.netflix')
-
     fake.expired = True
     before = len([call for call in fake.calls if call[0] == 'POST' and call[1].endswith('/login')])
     plugin.ITEMS.clear()
@@ -542,6 +633,78 @@ def main():
     episode = next(row for row in plugin.ITEMS if row[1].label == 'Pilot')
     check(episode[1].info.data.get('episode') == 1, 'episode number')
     check(episode[1].properties.get('IsPlayable') == 'true', 'episode should be playable')
+
+    import xml.etree.ElementTree as ET
+    skin = os.path.join(ADDON, 'resources', 'skins', 'Default', '1080i')
+    for name in ('Font.xml', 'Home.xml', 'Title.xml', 'Player.xml'):
+        ET.parse(os.path.join(skin, name))
+        print('parsed %s' % name)
+
+    from resources.lib.aurora import AuroraHome, PlayerOverlay
+    WindowXML.opened = []
+    run(['plugin://plugin.video.smoothflix/', '8', ''])
+    home = WindowXML.opened[-1]
+    row = home.getControl(200)
+    print('')
+    print('=== aurora home ===')
+    print('xml %s' % home.xml)
+    print('section %s' % home.getProperty('Section'))
+    print('kicker %s' % home.getProperty('HeroKicker'))
+    print('title %s' % home.getProperty('HeroTitle'))
+    print('tag %s' % home.getProperty('HeroTag'))
+    print('fanart %s' % home.getProperty('HeroFanart'))
+    print('tint %s' % home.getControl(101).color)
+    print('cards %s' % row.size())
+    for card in row.items:
+        print('[card] %s' % card.label)
+        print('    meta %s' % card.getProperty('Meta'))
+        print('    thumb %s' % card.art.get('thumb'))
+        if card.info.data.get('resume'):
+            print('    progress %r' % (card.info.data['resume'],))
+    check(home.xml == 'Home.xml', 'home should load Home.xml')
+    check(row.size() == 2, 'home row should list both cached titles')
+    check(home.getProperty('HeroTitle') == 'HARBOR LIGHTS', 'hero title')
+    check(home.getProperty('HeroFanart').startswith('https://'), 'hero fanart is a url')
+    check(home.getControl(101).color.startswith('66'), 'focus tint is a charcoal wash')
+    check(row.items[0].getProperty('Meta') == '32% WATCHED', 'progress caption')
+
+    home.onClick(200)
+    title = WindowXML.opened[-1]
+    print('')
+    print('=== aurora title ===')
+    print('kicker %s' % title.getProperty('Kicker'))
+    print('title %s' % title.getProperty('HeroTitle'))
+    print('meta %s' % title.getProperty('Meta'))
+    print('synopsis %s' % title.getProperty('Synopsis'))
+    print('related %s' % title.getControl(210).size())
+    check(title.xml == 'Title.xml', 'title window')
+    check(title.getProperty('Kicker') == 'A SERIES', 'series kicker')
+    check(title.getProperty('HeroTitle') == 'HARBOR LIGHTS', 'title page name')
+    check('secret schedule' in title.getProperty('Synopsis'), 'synopsis copied onto the title page')
+
+    overlay = PlayerOverlay('Player.xml', ADDON, 'Default', '1080i')
+    overlay.info = {
+        'title': 'The Revenant',
+        'meta': '2015 • Director',
+        'position': 754,
+        'duration': 9360,
+        'volume': 35,
+    }
+    overlay.doModal()
+    print('')
+    print('=== aurora player ===')
+    print('xml %s' % overlay.xml)
+    print('title %s' % overlay.getProperty('Title'))
+    print('meta %s' % overlay.getProperty('Meta'))
+    print('elapsed %s' % overlay.getProperty('Elapsed'))
+    print('total %s' % overlay.getProperty('Total'))
+    print('progress %s' % overlay.getControl(400).percent)
+    print('volume %s' % overlay.getControl(520).percent)
+    check(overlay.xml == 'Player.xml', 'player layout')
+    check(overlay.getProperty('Title') == 'THE REVENANT', 'player title')
+    check(overlay.getProperty('Meta') == '2015 • Director', 'player meta')
+    check(overlay.getProperty('Elapsed') == '12:34', 'elapsed time')
+    check(overlay.getControl(400).percent == 8, 'progress percent')
 
     thread = threading.Thread(target=serve, daemon=True)
     thread.start()
