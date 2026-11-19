@@ -10,7 +10,11 @@ import xbmc
 import xbmcgui
 import xbmcplugin
 
-from resources.lib import cache, items, netflix
+from resources.lib import cache, items
+from resources.lib.nf import auth, browse
+from resources.lib.nf.errors import NetflixError, SessionExpired
+from resources.lib.nf.log import log
+from resources.lib.nf.play import listitem
 
 
 def parse_argv(argv):
@@ -24,64 +28,94 @@ def parse_argv(argv):
     return handle, parsed.path.strip('/'), params
 
 
+def _fail(handle, exc):
+    xbmcgui.Dialog().ok('SmoothFlix', str(exc))
+    if handle:
+        xbmcplugin.endOfDirectory(handle, succeeded=False)
+
+
+def _once(fn):
+    """Run fn, and sign in again a single time if the session has expired."""
+    try:
+        return fn()
+    except SessionExpired:
+        auth.relogin()
+        return fn()
+
+
+def _cached(key, refresh, fn):
+    ttl = cache.minutes() * 60
+    if not refresh and ttl > 0:
+        hit = cache.get_fresh(key, ttl)
+        if hit is not None:
+            log('cache hit')
+            return hit
+    videos = _once(fn)
+    if videos and ttl > 0:
+        try:
+            cache.put(key, videos)
+        except Exception as exc:
+            log('cache write failed: %s' % exc.__class__.__name__)
+    return videos
+
+
 def show_root(handle, _params):
     items.show_home(handle)
 
 
 def show_list(handle, params):
-    nf_path = params.get('path', '')
     title = params.get('title') or 'SmoothFlix'
     refresh = params.get('refresh') == '1'
-    if not netflix.is_directory(nf_path):
-        xbmcgui.Dialog().notification(
-            'SmoothFlix', 'That list is not available', xbmcgui.NOTIFICATION_ERROR, 4000)
-        xbmcplugin.endOfDirectory(handle, succeeded=False)
-        return
-    if not netflix.ensure():
-        xbmcplugin.endOfDirectory(handle, succeeded=False)
-        return
-    if 'switch_profile_guid=' in nf_path:
-        _switch_profile(handle, nf_path)
-        return
-    files = netflix.load(nf_path, refresh)
-    if files is None:
-        xbmcplugin.endOfDirectory(handle, succeeded=False)
-        return
-    items.show_files(handle, files, title, refresh)
+    auth.ensure()
+    profile = auth.profile_guid()
+    if params.get('season'):
+        key = '%s:season:%s' % (profile, params['season'])
+        videos = _cached(key, refresh, lambda: browse.episodes(params.get('show') or '', params['season']))
+    elif params.get('show'):
+        key = '%s:show:%s' % (profile, params['show'])
+        videos = _cached(key, refresh, lambda: browse.seasons(params['show']))
+        title = title or 'Seasons'
+    elif params.get('genre'):
+        key = '%s:genre:%s' % (profile, params['genre'])
+        videos = _cached(key, refresh, lambda: browse.row('genre', genre=params['genre']))
+    elif params.get('query'):
+        key = '%s:search:%s' % (profile, params['query'])
+        videos = _cached(key, refresh, lambda: browse.search(params['query']))
+    else:
+        row = params.get('row') or ''
+        key = '%s:row:%s' % (profile, row)
+        videos = _cached(key, refresh, lambda: browse.row(row))
+    items.show_videos(handle, videos, title, refresh)
 
 
-def _switch_profile(handle, nf_path):
-    # Loading this URL is what switches the profile inside the Netflix add-on,
-    # including its PIN prompt. The returned home list is discarded: SmoothFlix
-    # draws its own home, and the old cache belongs to the previous profile.
-    files = netflix.directory(nf_path)
-    if files is None:
-        xbmcgui.Dialog().notification(
-            'SmoothFlix', 'Could not switch profile', xbmcgui.NOTIFICATION_ERROR, 4000)
-        xbmcplugin.endOfDirectory(handle, succeeded=False)
-        return
+def show_profiles(handle, _params):
+    found = _once(auth.profiles)
+    items.show_profiles(handle, found)
+
+
+def switch(handle, params):
+    guid = params.get('guid') or ''
+    pin = None
+    chosen = None
+    for item in auth.profiles():
+        if item.get('guid') == guid:
+            chosen = item
+            break
+    if chosen and chosen.get('pin'):
+        keyboard = xbmc.Keyboard('', 'Profile PIN', True)
+        keyboard.doModal()
+        if not keyboard.isConfirmed() or not keyboard.getText().strip():
+            xbmcplugin.endOfDirectory(handle, succeeded=False)
+            return
+        pin = keyboard.getText().strip()
+    _once(lambda: auth.switch_profile(guid, pin))
     cache.clear()
     xbmcgui.Dialog().notification('SmoothFlix', 'Profile switched', xbmcgui.NOTIFICATION_INFO, 2500)
-    xbmc.executebuiltin('Container.Update(%s/)' % netflix.BASE)
+    xbmc.executebuiltin('Container.Update(%s/)' % items.PLUGIN)
     xbmcplugin.endOfDirectory(handle, succeeded=False)
 
 
-def play(handle, params):
-    nf_path = params.get('path', '')
-    item = xbmcgui.ListItem()
-    if not netflix.is_play(nf_path):
-        xbmcplugin.setResolvedUrl(handle, False, item)
-        return
-    # Kodi follows this plugin URL into plugin.video.netflix, which resolves
-    # the stream with inputstream.adaptive. SmoothFlix never sees the manifest.
-    item.setPath(nf_path)
-    xbmcplugin.setResolvedUrl(handle, True, item)
-
-
 def search(handle, _params):
-    if not netflix.ensure():
-        xbmcplugin.endOfDirectory(handle, succeeded=False)
-        return
     keyboard = xbmc.Keyboard('', 'Search SmoothFlix')
     keyboard.doModal()
     if not keyboard.isConfirmed():
@@ -91,11 +125,19 @@ def search(handle, _params):
     if not term:
         xbmcplugin.endOfDirectory(handle, succeeded=False)
         return
-    # The Netflix add-on accepts ?query= for a JSON-RPC search and does not
-    # store that search in its history.
-    url = netflix.list_url(netflix.search_url(term), 'Search: ' + term)
-    xbmc.executebuiltin('Container.Update(%s)' % netflix.builtin_url(url))
+    from urllib.parse import urlencode
+    url = '%s/list?%s' % (items.PLUGIN, urlencode({'query': term, 'title': 'Search: ' + term}))
+    xbmc.executebuiltin('Container.Update(%s)' % url.replace('&', '&amp;'))
     xbmcplugin.endOfDirectory(handle, succeeded=False)
+
+
+def play(handle, params):
+    video_id = params.get('id') or ''
+    if not video_id:
+        xbmcplugin.setResolvedUrl(handle, False, xbmcgui.ListItem())
+        return
+    item = listitem(video_id)
+    xbmcplugin.setResolvedUrl(handle, True, item)
 
 
 def clear_cache(handle, _params):
@@ -105,13 +147,24 @@ def clear_cache(handle, _params):
     xbmcplugin.endOfDirectory(handle, succeeded=True)
 
 
+def sign_out(handle, _params):
+    auth.logout()
+    cache.clear()
+    xbmcgui.Dialog().notification('SmoothFlix', 'Signed out', xbmcgui.NOTIFICATION_INFO, 3000)
+    xbmc.executebuiltin('Container.Refresh')
+    xbmcplugin.endOfDirectory(handle, succeeded=True)
+
+
 _ROUTES = {
     '': show_root,
     'root': show_root,
     'list': show_list,
-    'play': play,
+    'profiles': show_profiles,
+    'profile': switch,
     'search': search,
+    'play': play,
     'clear_cache': clear_cache,
+    'logout': sign_out,
 }
 
 
@@ -119,16 +172,15 @@ def run(argv):
     handle = 0
     try:
         handle, route, params = parse_argv(argv)
-        netflix.log(route or 'root')
+        log(route or 'root')
         handler = _ROUTES.get(route)
         if handler is None:
-            netflix.log('unknown route %s' % route, xbmc.LOGERROR)
+            log('unknown route')
             xbmcplugin.endOfDirectory(handle, succeeded=False)
             return
         handler(handle, params)
+    except NetflixError as exc:
+        _fail(handle, exc)
     except Exception:
         xbmc.log('[SmoothFlix]\n' + traceback.format_exc(), xbmc.LOGERROR)
-        if handle:
-            xbmcplugin.endOfDirectory(handle, succeeded=False)
-        xbmcgui.Dialog().notification(
-            'SmoothFlix', 'Could not open that page', xbmcgui.NOTIFICATION_ERROR, 4000)
+        _fail(handle, NetflixError('Could not open that page.'))

@@ -1,3 +1,9 @@
+v0.2.0 (2026-11-19)
+- Sign in with your own Netflix account and keep the session in this add-on's profile.
+- Catalogue rows, search, seasons and episodes are loaded directly and cached on disk.
+- Playback uses inputstream.adaptive and a Widevine license for the CDM.
+- Removed the dependency on plugin.video.netflix.
+
 v0.1.0 (2026-11-19)
 - First release.
-- Home menu, cached listings, and playback through plugin.video.netflix.
+- Home menu and cached listings through another add-on.

@@ -32,7 +32,6 @@ TILES = [
     ('trending.jpg', 'Trending', (214, 122, 96)),
     ('new.jpg', 'New', (120, 214, 168)),
     ('popular.jpg', 'Popular', (128, 146, 230)),
-    ('spotlight.jpg', 'Spotlight', (230, 150, 92)),
     ('shows.jpg', 'Series', (72, 168, 214)),
     ('movies.jpg', 'Movies', (214, 176, 110)),
     ('search.jpg', 'Search', (176, 186, 196)),

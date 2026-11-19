@@ -16,7 +16,8 @@ import time
 import xbmcaddon
 import xbmcvfs
 
-from resources.lib.netflix import ADDON_ID, log
+from resources.lib.nf.const import ADDON_ID
+from resources.lib.nf.log import log
 
 
 def _folder():

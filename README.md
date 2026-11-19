@@ -1,17 +1,16 @@
 # SmoothFlix
 
-SmoothFlix is a Kodi 21 front end for the Netflix add-on [plugin.video.netflix](https://github.com/CastagnaIT/plugin.video.netflix) by CastagnaIT. It draws the home screen and the lists. Sign-in, account data, and playback stay in that add-on, which plays through your own account with Kodi's inputstream.adaptive and Widevine.
+SmoothFlix is a Kodi 21 add-on that signs in to your own Netflix account, lists the usual rows, and plays through inputstream.adaptive and Widevine. The picture stays encrypted until the CDM unlocks it.
 
-SmoothFlix does not sign in, request licenses, download manifests, or play from any other source.
+It does not depend on any other Netflix add-on.
 
 ## Install
 
-1. Install `plugin.video.netflix` from CastagnaIT's repository and sign in with your own account. SmoothFlix does not ship that add-on. It is not in the official Kodi repository, so Kodi cannot install it from here. The dependency is optional in `addon.xml` for that reason, and SmoothFlix refuses to list or play until the add-on is installed and enabled.
-2. In Kodi: Settings, Add-ons, Install from zip file. Use this URL once it is on `main`:
+After this is on `main`, install the repository from:
 
-   `https://raw.githubusercontent.com/AgreeWithScotty/SmoothFlix/main/repository.smoothflix-1.0.0.zip`
+`https://raw.githubusercontent.com/AgreeWithScotty/SmoothFlix/main/repository.smoothflix-1.0.0.zip`
 
-3. Install **SmoothFlix** from the SmoothFlix repository. Updates come from the same repository.
+Kodi: Settings, Add-ons, Install from zip file. Then install SmoothFlix from the SmoothFlix repository. Put your email and password in the add-on settings. They stay in this Kodi profile.
 
 The repository points Kodi at:
 
@@ -19,27 +18,23 @@ The repository points Kodi at:
 - `https://raw.githubusercontent.com/AgreeWithScotty/SmoothFlix/main/addons.xml.md5`
 - `https://raw.githubusercontent.com/AgreeWithScotty/SmoothFlix/main/<addon-id>/<addon-id>-<version>.zip`
 
-## What you get
+## How it is put together
 
-The home menu is drawn locally, so it opens without waiting on the Netflix add-on. Continue Watching, My List, Trending, New Releases, Popular, New & Popular, TV Shows, Movies, Search, and Profiles each open one directory of `plugin.video.netflix`. Results are saved on disk (30 minutes by default, or off in settings) so the next visit does not ask again. Posters and fanart are the URLs the Netflix add-on already returned. Kodi's texture cache loads them. Nothing is downloaded before the list is on screen.
+Sign-in, cookies, and profile switching are in `resources/lib/nf/auth.py`. Catalogue paths are in `resources/lib/nf/browse.py`. Manifest and license messages are in `resources/lib/nf/msl.py`. `service.py` keeps a localhost listener up so inputstream.adaptive can fetch the DASH manifest and post the CDM challenge; the challenge is forwarded on the session channel and the license bytes go back to the CDM.
 
-A title opens as another SmoothFlix list (a show, a season, a genre, the next page). Play hands Kodi `plugin://plugin.video.netflix/play/...`. Kodi follows that into the Netflix add-on, which resolves the stream. Search uses that add-on's `directory/search/search/?query=` path, the one it exposes for JSON-RPC, and does not keep its own login.
+The home menu is local. A list is saved on disk (30 minutes by default) so the next open does not ask Netflix again. Posters are URLs. Kodi loads them.
 
-Profiles switch by opening the Netflix add-on's profile URL, so a PIN prompt is still its prompt. The saved lists are dropped after a switch because they belonged to the previous profile.
+A bad password, a verification challenge, an expired session, and a profile PIN each raise their own error. An expired session signs in once and retries.
 
-## Layout
-
-- `plugin.video.smoothflix` — the video add-on, version 0.1.0
-- `repository.smoothflix` — the repository add-on, version 1.0.0
-- `tools/build_repo.py` — zips both add-ons, writes `addons.xml` and `addons.xml.md5`, and copies `repository.smoothflix-1.0.0.zip` to the repository root
-- `tools/smoke_test.py` — runs the root menu, a list, the cache, and play against stubbed Kodi modules
-- `tools/make_art.py` — redraws the icon, fanart, and home tiles
+## Develop
 
 ```bash
 python3 tools/make_art.py
 python3 tools/build_repo.py
 python3 tools/smoke_test.py
 ```
+
+The smoke test stubs Kodi and answers Netflix itself. It does not sign in to a real account.
 
 ## License
 

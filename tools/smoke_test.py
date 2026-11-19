@@ -1,25 +1,197 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2026 Scott
 # SPDX-License-Identifier: GPL-3.0-only
-"""Run SmoothFlix routing with stubbed Kodi modules.
+"""Headless SmoothFlix run with stubbed Kodi modules and a fake Netflix HTTP layer."""
 
-The Netflix add-on is stubbed as Files.GetDirectory, which is the interface
-SmoothFlix calls. Nothing here contacts Netflix.
-"""
-
+import base64
 import json
 import os
 import sys
 import tempfile
-from urllib.parse import parse_qsl, urlparse
+import threading
+import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ADDON = os.path.join(ROOT, 'plugin.video.smoothflix')
 PROFILE = tempfile.mkdtemp(prefix='smoothflix-')
 
-SHOW = 'plugin://plugin.video.netflix/directory/show/80057281/'
-MOVIE = 'plugin://plugin.video.netflix/play/movie/80117470/'
-POSTER = 'https://example.com/art/midnight-poster.jpg'
+BROWSE_HTML = (
+    '<html><script>netflix.reactContext = %s;</script></html>' % json.dumps({
+        'authURL': 'c1.example-auth',
+        'serverDefs': {'data': {'BUILD_IDENTIFIER': 'build123'}},
+        'profiles': [
+            {'guid': 'aaa', 'name': 'Ada', 'isPinProtected': False},
+            {'guid': 'bbb', 'name': 'Bea', 'isPinProtected': True},
+        ],
+    })
+)
+LOGIN_HTML = (
+    '<html><script>netflix.reactContext = %s;</script></html>' % json.dumps({
+        'authURL': 'c1.login-auth',
+    })
+)
+CAPTCHA_HTML = '<html><div class="g-recaptcha"></div>verify you are human</html>'
+
+CONTINUE = {
+    'videos': [
+        {
+            'summary': {'id': '80057281', 'type': 'show', 'title': 'Harbor Lights', 'releaseYear': 2021},
+            'synopsis': 'A coastal town keeps a secret schedule.',
+            'boxarts': {'_342x684': {'url': 'https://example.com/art/harbor-poster.jpg'}},
+        },
+        {
+            'summary': {'id': '80117470', 'type': 'movie', 'title': 'The Midnight Library', 'releaseYear': 2024},
+            'synopsis': 'A librarian walks through the lives she did not live.',
+            'boxarts': {'_342x684': {'url': 'https://example.com/art/midnight-poster.jpg'}},
+        },
+    ]
+}
+SEASONS = {
+    'seasons': [{
+        'summary': {'id': 's1', 'type': 'season', 'title': 'Season 1', 'showId': '80057281'},
+    }]
+}
+EPISODES = {
+    'episodes': [{
+        'summary': {
+            'id': 'e1', 'type': 'episode', 'title': 'Pilot',
+            'season': 1, 'episode': 1, 'showId': '80057281',
+        },
+        'synopsis': 'The first night.',
+    }]
+}
+MANIFEST = {
+    'video_tracks': [{
+        'streams': [{
+            'url': 'https://example.com/video/init.mp4',
+            'bitrate': 3000000, 'width': 1920, 'height': 1080,
+        }],
+    }],
+    'audio_tracks': [{
+        'streams': [{'url': 'https://example.com/audio/init.mp4', 'bitrate': 128000}],
+    }],
+}
+LICENSE_BYTES = b'WIDEVINE-LICENSE'
+
+
+class Response(object):
+    def __init__(self, status, body, cookies=None):
+        self.status = status
+        self.body = body if isinstance(body, bytes) else body.encode('utf-8')
+        self.headers = {}
+        self.cookies = cookies or {}
+
+    @property
+    def text(self):
+        return self.body.decode('utf-8')
+
+
+class FakeNetflix(object):
+    def __init__(self):
+        self.calls = []
+        self.mode = 'ok'
+        self.expired = False
+        self.aes = None
+        self.sign = None
+
+    def request(self, method, url, headers, body, timeout):
+        text = body.decode('utf-8') if isinstance(body, bytes) else ''
+        path = url.split('?', 1)[0]
+        self.calls.append((method, path))
+        if path.endswith('/login') and method == 'GET':
+            return Response(200, CAPTCHA_HTML if self.mode == 'captcha' else LOGIN_HTML)
+        if path.endswith('/login') and method == 'POST':
+            if 'password=wrong' in text:
+                return Response(200, 'Incorrect password')
+            return Response(200, BROWSE_HTML, cookies={
+                'NetflixId': 'nid-value', 'SecureNetflixId': 'sid-value'})
+        if path.endswith('/browse'):
+            return Response(200, BROWSE_HTML)
+        if path.endswith('/pathEvaluator'):
+            if self.expired:
+                self.expired = False
+                return Response(401, '{"error":"login"}')
+            if 'seasonList' in text:
+                return Response(200, json.dumps(SEASONS))
+            if 'episodes' in text:
+                return Response(200, json.dumps(EPISODES))
+            return Response(200, json.dumps(CONTINUE))
+        if path.endswith('/profiles/switch') or path.endswith('/SwitchProfile'):
+            if '"guid": "bbb"' in text or '"guid":"bbb"' in text:
+                if 'pin' not in text:
+                    return Response(401, '{"error":"pin_required"}')
+            return Response(200, json.dumps({'authURL': 'c1.switched'}))
+        if 'licensedmanifest' in path or 'pbo_licenses' in path:
+            return self._msl(text, path)
+        return Response(404, 'unhandled ' + path)
+
+    def _msl(self, text, path):
+        from resources.lib.nf import rsaoaep
+        from resources.lib.nf.msl import seal
+        pieces = []
+        decoder = json.JSONDecoder()
+        index = 0
+        while index < len(text):
+            while index < len(text) and text[index].isspace():
+                index += 1
+            if index >= len(text):
+                break
+            obj, index = decoder.raw_decode(text, index)
+            pieces.append(obj)
+        header_piece = next(piece for piece in pieces if 'headerdata' in piece)
+        header_raw = base64.standard_b64decode(header_piece['headerdata']).decode('utf-8')
+        if 'entityauthdata' in text:
+            header = json.loads(header_raw)
+            public_b64 = header['keyrequestdata'][0]['keydata']['publickey']
+            public = rsaoaep.public_from_der(base64.standard_b64decode(public_b64))
+            self.aes = os.urandom(16)
+            self.sign = os.urandom(32)
+            reply = {
+                'messageid': 1,
+                'keyresponsedata': {
+                    'scheme': 'ASYMMETRIC_WRAPPED',
+                    'keydata': {
+                        'keypairid': 'rsaKeypairId',
+                        'encryptionkey': _wrap(public, self.aes),
+                        'hmackey': _wrap(public, self.sign),
+                        'mastertoken': {
+                            'tokendata': base64.standard_b64encode(b'{"s":1}').decode('utf-8'),
+                            'signature': 'AA==',
+                        },
+                    },
+                },
+            }
+            return Response(200, json.dumps({
+                'headerdata': base64.standard_b64encode(json.dumps(reply).encode('utf-8')).decode('utf-8'),
+                'signature': '',
+            }))
+        if 'pbo_licenses' in path:
+            body = {'licenseResponseBase64': base64.standard_b64encode(LICENSE_BYTES).decode('utf-8')}
+        else:
+            body = MANIFEST
+        plain = json.dumps({
+            'messageid': 1,
+            'data': base64.standard_b64encode(json.dumps(body).encode('utf-8')).decode('utf-8'),
+            'sequencenumber': 1,
+            'endofmsg': True,
+        })
+        envelope, signature = seal(plain, self.aes, self.sign, 'test_1')
+        return Response(200, json.dumps({
+            'payload': base64.standard_b64encode(envelope.encode('utf-8')).decode('utf-8'),
+            'signature': signature,
+        }))
+
+
+def _wrap(public, raw):
+    payload = json.dumps({
+        'k': base64.urlsafe_b64encode(raw).decode('utf-8').rstrip('='),
+    }).encode('utf-8')
+    return base64.standard_b64encode(rsa_encrypt(public, payload)).decode('utf-8')
+
+
+def rsa_encrypt(public, payload):
+    from resources.lib.nf import rsaoaep
+    return rsaoaep.encrypt(public, payload)
 
 
 class InfoTag(object):
@@ -29,14 +201,8 @@ class InfoTag(object):
     def setTitle(self, value):
         self.data['title'] = value
 
-    def setOriginalTitle(self, value):
-        self.data['originaltitle'] = value
-
     def setPlot(self, value):
         self.data['plot'] = value
-
-    def setTagLine(self, value):
-        self.data['tagline'] = value
 
     def setYear(self, value):
         self.data['year'] = value
@@ -44,62 +210,21 @@ class InfoTag(object):
     def setMediaType(self, value):
         self.data['mediatype'] = value
 
-    def setGenres(self, value):
-        self.data['genre'] = list(value)
-
-    def setDuration(self, value):
-        self.data['duration'] = value
-
-    def setRating(self, rating, votes=0, type='', isdefault=False):
-        self.data['rating'] = rating
-        self.data['votes'] = votes
-
-    def setPremiered(self, value):
-        self.data['premiered'] = value
-
-    def setMpaa(self, value):
-        self.data['mpaa'] = value
-
-    def setStudios(self, value):
-        self.data['studio'] = list(value)
-
-    def setDirectors(self, value):
-        self.data['director'] = list(value)
-
-    def setWriters(self, value):
-        self.data['writer'] = list(value)
-
-    def setCountries(self, value):
-        self.data['country'] = list(value)
-
-    def setTvShowTitle(self, value):
-        self.data['showtitle'] = value
-
     def setSeason(self, value):
         self.data['season'] = value
 
     def setEpisode(self, value):
         self.data['episode'] = value
 
-    def setPlaycount(self, value):
-        self.data['playcount'] = value
-
-    def setResumePoint(self, position, total=0):
-        self.data['resume'] = (position, total)
-
-    def setTrailer(self, value):
-        self.data['trailer'] = value
-
 
 class ListItem(object):
     def __init__(self, label='', label2='', path='', offscreen=False):
         self.label = label
         self.path = path
-        self.offscreen = offscreen
         self.art = {}
         self.properties = {}
-        self.menu = []
         self.info = InfoTag()
+        self.mime = ''
 
     def setArt(self, art):
         self.art.update(art)
@@ -114,13 +239,19 @@ class ListItem(object):
         return self.info
 
     def addContextMenuItems(self, items):
-        self.menu = list(items)
+        self.menu = items
+
+    def setMimeType(self, mime):
+        self.mime = mime
+
+    def setContentLookup(self, enabled):
+        self.lookup = enabled
 
 
 class Keyboard(object):
-    def __init__(self, default='', heading=''):
-        self.text = ''
+    def __init__(self, default='', heading='', hidden=False):
         self.confirmed = False
+        self.text = ''
 
     def doModal(self):
         return None
@@ -135,34 +266,43 @@ class Keyboard(object):
 class Dialog(object):
     def ok(self, heading, message):
         print('DIALOG %s: %s' % (heading, message))
-        return True
 
     def notification(self, heading, message, icon='', time=5000, sound=True):
         print('NOTIFY %s: %s' % (heading, message))
 
 
+class Monitor(object):
+    def abortRequested(self):
+        return False
+
+
 class Addon(object):
+    settings = {'email': 'ada@example.com', 'password': 'secret', 'cache_minutes': '30'}
+
     def __init__(self, addon_id=None):
         self.id = addon_id or 'plugin.video.smoothflix'
 
     def getAddonInfo(self, key):
         return {
             'id': 'plugin.video.smoothflix',
-            'name': 'SmoothFlix',
-            'version': '0.1.0',
             'path': ADDON,
             'profile': PROFILE,
             'icon': os.path.join(ADDON, 'icon.png'),
             'fanart': os.path.join(ADDON, 'fanart.jpg'),
+            'version': '0.2.0',
         }[key]
 
-    def getSettingInt(self, key):
-        if key == 'cache_minutes':
-            return 30
-        return 0
+    def getSetting(self, key):
+        return self.settings.get(key, '')
 
-    def getLocalizedString(self, string_id):
-        return str(string_id)
+    def getSettingInt(self, key):
+        try:
+            return int(self.settings.get(key, '0'))
+        except ValueError:
+            return 0
+
+    def setSetting(self, key, value):
+        self.settings[key] = value
 
 
 class File(object):
@@ -184,100 +324,39 @@ def install_stubs():
     xbmc = type(sys)('xbmc')
     xbmc.LOGINFO = 1
     xbmc.LOGERROR = 3
-    xbmc.calls = []
-
-    def log(msg, level=1):
-        xbmc.calls.append((level, msg))
-
-    def executebuiltin(builtin):
-        xbmc.calls.append(('builtin', builtin))
-
-    def executeJSONRPC(payload):
-        request = json.loads(payload)
-        xbmc.rpc.append(request)
-        directory = request['params']['directory']
-        files = [
-            {
-                'file': SHOW,
-                'filetype': 'directory',
-                'label': 'Harbor Lights',
-                'title': 'Harbor Lights',
-                'type': 'tvshow',
-                'art': {'poster': 'https://example.com/art/harbor-poster.jpg'},
-                'plot': 'A coastal town keeps a secret schedule.',
-                'year': 2021,
-                'genre': ['Mystery'],
-            },
-            {
-                'file': MOVIE,
-                'filetype': 'file',
-                'label': 'The Midnight Library',
-                'title': 'The Midnight Library',
-                'type': 'movie',
-                'art': {
-                    'poster': POSTER,
-                    'fanart': 'https://example.com/art/midnight-fanart.jpg',
-                    'thumb': 'https://example.com/art/midnight-thumb.jpg',
-                },
-                'plot': 'A librarian walks through the lives she did not live.',
-                'year': 2024,
-                'rating': 8.4,
-                'votes': 1200,
-                'duration': 6420,
-                'genre': ['Drama', 'Fantasy'],
-                'playcount': 0,
-                'resume': {'position': 320.0, 'total': 6420.0},
-                'premiered': '2024-03-01',
-                'mpaa': 'PG-13',
-                'studio': ['Smooth Pictures'],
-                'tagline': 'Every book is another life.',
-                'director': ['A. Director'],
-                'country': ['United Kingdom'],
-            },
-        ]
-        print('JSON-RPC Files.GetDirectory %s' % directory)
-        return json.dumps({'jsonrpc': '2.0', 'id': 1, 'result': {'files': files}})
-
-    def getCondVisibility(condition):
-        return True
-
-    xbmc.log = log
-    xbmc.executebuiltin = executebuiltin
-    xbmc.executeJSONRPC = executeJSONRPC
-    xbmc.getCondVisibility = getCondVisibility
-    xbmc.rpc = []
+    xbmc.log = lambda message, level=1: None
+    xbmc.executebuiltin = lambda builtin: xbmc.builtins.append(builtin)
+    xbmc.builtins = []
     xbmc.Keyboard = Keyboard
+    xbmc.Monitor = Monitor
 
     gui = type(sys)('xbmcgui')
     gui.ListItem = ListItem
     gui.Dialog = Dialog
     gui.NOTIFICATION_INFO = 'info'
-    gui.NOTIFICATION_WARNING = 'warning'
     gui.NOTIFICATION_ERROR = 'error'
 
     plugin = type(sys)('xbmcplugin')
     plugin.ITEMS = []
     plugin.CONTENT = []
     plugin.CATEGORY = []
-    plugin.ENDED = []
     plugin.RESOLVED = []
-    plugin.SORT_METHOD_NONE = 0
+    plugin.ENDED = []
+    plugin.SORT_METHOD_UNSORTED = 40
     plugin.SORT_METHOD_LABEL = 1
     plugin.SORT_METHOD_VIDEO_YEAR = 16
     plugin.SORT_METHOD_VIDEO_RATING = 17
     plugin.SORT_METHOD_EPISODE = 24
-    plugin.SORT_METHOD_VIDEO_RUNTIME = 29
-    plugin.SORT_METHOD_UNSORTED = 40
 
     def addDirectoryItems(handle, items, totalItems=0):
         plugin.ITEMS.extend(items)
         return True
 
     def endOfDirectory(handle, succeeded=True, updateListing=False, cacheToDisc=True):
-        plugin.ENDED.append((handle, succeeded, updateListing, cacheToDisc))
+        plugin.ENDED.append(succeeded)
 
     def setResolvedUrl(handle, succeeded, listitem):
-        plugin.RESOLVED.append((handle, succeeded, listitem))
+        plugin.RESOLVED.append((succeeded, listitem))
 
     def setContent(handle, content):
         plugin.CONTENT.append(content)
@@ -285,15 +364,12 @@ def install_stubs():
     def setPluginCategory(handle, category):
         plugin.CATEGORY.append(category)
 
-    def addSortMethod(handle, method):
-        return None
-
     plugin.addDirectoryItems = addDirectoryItems
     plugin.endOfDirectory = endOfDirectory
     plugin.setResolvedUrl = setResolvedUrl
     plugin.setContent = setContent
     plugin.setPluginCategory = setPluginCategory
-    plugin.addSortMethod = addSortMethod
+    plugin.addSortMethod = lambda handle, method: None
 
     addon = type(sys)('xbmcaddon')
     addon.Addon = Addon
@@ -315,61 +391,67 @@ def install_stubs():
         dirs, files = [], []
         for name in os.listdir(path):
             full = os.path.join(path, name)
-            if os.path.isdir(full):
-                dirs.append(name)
-            else:
-                files.append(name)
+            (dirs if os.path.isdir(full) else files).append(name)
         return dirs, files
 
     vfs.delete = delete
     vfs.listdir = listdir
+
+    helper = type(sys)('inputstreamhelper')
+
+    class Helper(object):
+        def __init__(self, protocol, drm=None):
+            self.inputstream_addon = 'inputstream.adaptive'
+
+        def check_inputstream(self):
+            return True
+
+    helper.Helper = Helper
 
     sys.modules['xbmc'] = xbmc
     sys.modules['xbmcgui'] = gui
     sys.modules['xbmcplugin'] = plugin
     sys.modules['xbmcaddon'] = addon
     sys.modules['xbmcvfs'] = vfs
+    sys.modules['inputstreamhelper'] = helper
     return xbmc, plugin
 
 
 def as_argv(url, handle):
-    parsed = urlparse(url)
-    base = '%s://%s%s' % (parsed.scheme, parsed.netloc, parsed.path)
-    query = ('?' + parsed.query) if parsed.query else ''
-    return [base, str(handle), query]
+    base, _, query = url.partition('?')
+    return [base, str(handle), ('?' + query) if query else '']
 
 
 def dump(title, plugin):
     print('')
     print('=== %s ===' % title)
-    print('content %s' % (plugin.CONTENT[-1] if plugin.CONTENT else None))
-    print('category %s' % (plugin.CATEGORY[-1] if plugin.CATEGORY else None))
+    if plugin.CONTENT:
+        print('content %s' % plugin.CONTENT[-1])
+    if plugin.CATEGORY:
+        print('category %s' % plugin.CATEGORY[-1])
     print('items %s' % len(plugin.ITEMS))
     for url, item, is_folder in plugin.ITEMS:
         kind = 'folder' if is_folder else 'play' if item.properties.get('IsPlayable') == 'true' else 'item'
         print('[%s] %s' % (kind, item.label))
         print('    url %s' % url)
-        if item.art:
-            for key in sorted(item.art):
-                print('    art.%s %s' % (key, item.art[key]))
-        info = item.info.data
-        for key in ('mediatype', 'year', 'rating', 'genre', 'duration', 'resume', 'plot'):
-            if key in info:
-                print('    %s %s' % (key, info[key]))
-    if plugin.RESOLVED:
-        for handle, succeeded, item in plugin.RESOLVED:
-            print('setResolvedUrl handle=%s success=%s path=%s' % (handle, succeeded, item.path))
-    if plugin.ENDED:
-        handle, succeeded, update, cache_to_disc = plugin.ENDED[-1]
-        print('endOfDirectory success=%s updateListing=%s cacheToDisc=%s' % (
-            succeeded, update, cache_to_disc))
+        poster = item.art.get('poster')
+        if poster:
+            print('    poster %s' % poster)
+        if item.info.data:
+            print('    info %s' % item.info.data)
 
 
 def main():
     xbmc, plugin = install_stubs()
     sys.path.insert(0, ADDON)
+    from resources.lib.nf import auth
+    from resources.lib.nf.errors import BadCredentials, CaptchaRequired, PinRequired
+    from resources.lib.nf.http import install
+    from resources.lib.nf.play import serve
     from resources.lib.router import run
 
+    fake = FakeNetflix()
+    install(fake)
     failures = []
 
     def check(condition, message):
@@ -377,77 +459,130 @@ def main():
             failures.append(message)
             print('FAIL %s' % message)
 
+    fake.mode = 'captcha'
+    try:
+        auth.login()
+        check(False, 'captcha page should not sign in')
+    except CaptchaRequired as exc:
+        print('captcha: %s' % exc)
+    fake.mode = 'ok'
+
+    Addon.settings['password'] = 'wrong'
+    try:
+        auth.login()
+        check(False, 'wrong password should not sign in')
+    except BadCredentials as exc:
+        print('bad password: %s' % exc)
+    check(not os.path.exists(os.path.join(PROFILE, 'cookies.json')), 'bad password must not leave a session')
+
+    Addon.settings['password'] = 'secret'
+    signed = auth.login()
+    print('login profiles: %s' % [(item['name'], item['pin']) for item in signed['profiles']])
+    check(signed['profiles'][0]['name'] == 'Ada', 'first profile should be Ada')
+
+    try:
+        auth.switch_profile('bbb')
+        check(False, 'pin profile should ask for a PIN')
+    except PinRequired as exc:
+        print('profile pin: %s' % exc)
     plugin.ITEMS.clear()
-    run(['plugin://plugin.video.smoothflix/', '1', ''])
+    run(['plugin://plugin.video.smoothflix/profiles', '1', ''])
+    dump('profiles', plugin)
+    check(any(item.label == 'Ada' for _url, item, _folder in plugin.ITEMS), 'profile list should include Ada')
+
+    plugin.ITEMS.clear()
+    plugin.CONTENT.clear()
+    run(['plugin://plugin.video.smoothflix/', '2', ''])
     dump('root', plugin)
-    labels = [item.label for _url, item, _folder in plugin.ITEMS]
-    check(xbmc.rpc == [], 'root must not call the Netflix add-on')
     check(plugin.CONTENT[-1] == 'images', 'root content should be images')
-    check('Continue Watching' in labels, 'root missing Continue Watching')
-    check('Search' in labels, 'root missing Search')
-    check('Netflix add-on' in labels, 'root missing Netflix add-on')
-    continue_url = next(url for url, item, _folder in plugin.ITEMS if item.label == 'Continue Watching')
-    account_url = next(url for url, item, _folder in plugin.ITEMS if item.label == 'Netflix add-on')
-    check(account_url == 'plugin://plugin.video.netflix/', 'account item should open the Netflix add-on')
-    check(continue_url.startswith('plugin://plugin.video.smoothflix/list?'), 'continue should stay in SmoothFlix')
+    labels = [item.label for _url, item, _folder in plugin.ITEMS]
+    for name in ('Continue Watching', 'My List', 'Trending', 'New Releases', 'Popular',
+                 'TV Shows', 'Movies', 'Search', 'Profiles', 'Sign out'):
+        check(name in labels, 'root missing %s' % name)
+    check(all('plugin.video.netflix' not in url for url, _item, _folder in plugin.ITEMS),
+          'root must not point at plugin.video.netflix')
 
+    fake.expired = True
+    before = len([call for call in fake.calls if call[0] == 'POST' and call[1].endswith('/login')])
     plugin.ITEMS.clear()
     plugin.CONTENT.clear()
     plugin.CATEGORY.clear()
-    plugin.ENDED.clear()
-    run(as_argv(continue_url, 2))
-    dump('list Continue Watching', plugin)
-    check(len(xbmc.rpc) == 1, 'first list should call JSON-RPC once, got %s' % len(xbmc.rpc))
-    check(plugin.CONTENT[-1] == 'videos', 'mixed list content should be videos')
-    show = next(row for row in plugin.ITEMS if row[1].label == 'Harbor Lights')
-    movie = next(row for row in plugin.ITEMS if row[1].label == 'The Midnight Library')
-    check(show[2] is True, 'show should be a folder')
-    check('80057281' in show[0], 'show folder should point back at SmoothFlix with the Netflix show path')
-    check(movie[2] is False, 'movie should not be a folder')
-    check(movie[1].properties.get('IsPlayable') == 'true', 'movie should be playable')
-    check(movie[1].art.get('poster') == POSTER, 'poster URL should be passed through, not downloaded')
-    check(movie[1].info.data.get('year') == 2024, 'year should be copied onto the info tag')
-    check(movie[1].info.data.get('rating') == 8.4, 'rating should be copied onto the info tag')
-    check(movie[1].info.data.get('resume') == (320.0, 6420.0), 'resume point should be copied')
-    check(movie[0].startswith('plugin://plugin.video.smoothflix/play?'), 'play route should be ours')
-
-    plugin.ITEMS.clear()
+    continue_url = 'plugin://plugin.video.smoothflix/list?row=continue&title=Continue+Watching'
     run(as_argv(continue_url, 3))
-    print('')
-    print('=== list Continue Watching again (cache) ===')
-    print('jsonrpc calls %s' % len(xbmc.rpc))
-    print('items %s' % len(plugin.ITEMS))
-    check(len(xbmc.rpc) == 1, 'cached list must not call JSON-RPC again')
-    check(len(plugin.ITEMS) == 2, 'cached list should still return both items')
+    dump('list Continue Watching (after expired session)', plugin)
+    logins = len([call for call in fake.calls if call[0] == 'POST' and call[1].endswith('/login')])
+    print('login posts after expiry %s (was %s)' % (logins, before))
+    check(logins == before + 1, 'expired session should sign in again once')
+    check(any(item.label == 'Harbor Lights' for _url, item, _folder in plugin.ITEMS), 'list should include the show')
+    check(any(item.label == 'The Midnight Library' for _url, item, _folder in plugin.ITEMS), 'list should include the movie')
+    movie = next(row for row in plugin.ITEMS if row[1].label == 'The Midnight Library')
+    check(movie[1].properties.get('IsPlayable') == 'true', 'movie should be playable')
+    check(movie[1].art.get('poster') == 'https://example.com/art/midnight-poster.jpg', 'poster URL is passed through')
+    calls_after_list = len(fake.calls)
 
-    parsed = urlparse(continue_url)
-    refresh = continue_url + ('&' if parsed.query else '?') + 'refresh=1'
     plugin.ITEMS.clear()
-    run(as_argv(refresh, 4))
+    run(as_argv(continue_url, 4))
     print('')
-    print('=== list refresh ===')
-    print('jsonrpc calls %s' % len(xbmc.rpc))
-    check(len(xbmc.rpc) == 2, 'refresh should call JSON-RPC again')
+    print('=== cache hit ===')
+    print('http calls %s (unchanged %s)' % (len(fake.calls), len(fake.calls) == calls_after_list))
+    print('items %s' % len(plugin.ITEMS))
+    check(len(fake.calls) == calls_after_list, 'cached list must not call Netflix')
+    check(len(plugin.ITEMS) == 2, 'cached list should still have both titles')
 
-    plugin.RESOLVED.clear()
     plugin.ITEMS.clear()
     plugin.CONTENT.clear()
-    plugin.CATEGORY.clear()
-    plugin.ENDED.clear()
-    run(as_argv(movie[0], 5))
-    dump('play', plugin)
-    check(len(plugin.RESOLVED) == 1, 'play should resolve once')
-    _handle, success, resolved = plugin.RESOLVED[-1]
-    check(success is True, 'play should succeed')
-    check(resolved.path == MOVIE, 'play should hand Kodi the Netflix play URL, got %s' % resolved.path)
-    check(len(xbmc.rpc) == 2, 'play must not call Files.GetDirectory')
+    run(as_argv('plugin://plugin.video.smoothflix/list?show=80057281&title=Harbor+Lights', 5))
+    dump('seasons', plugin)
+    check(any(item.label == 'Season 1' for _url, item, _folder in plugin.ITEMS), 'season list')
 
+    plugin.ITEMS.clear()
+    plugin.CONTENT.clear()
+    run(as_argv('plugin://plugin.video.smoothflix/list?show=80057281&season=s1&title=Season+1', 6))
+    dump('episodes', plugin)
+    episode = next(row for row in plugin.ITEMS if row[1].label == 'Pilot')
+    check(episode[1].info.data.get('episode') == 1, 'episode number')
+    check(episode[1].properties.get('IsPlayable') == 'true', 'episode should be playable')
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    port_path = os.path.join(PROFILE, 'port')
+    for _ in range(50):
+        if os.path.exists(port_path):
+            break
+        thread.join(0.05)
     plugin.RESOLVED.clear()
-    run(['plugin://plugin.video.smoothflix/play', '6', '?path=https%3A%2F%2Fexample.com%2Fvideo.mpd'])
+    run(as_argv(episode[0], 7))
     print('')
-    print('=== play rejected ===')
-    print('setResolvedUrl success=%s path=%s' % (plugin.RESOLVED[-1][1], plugin.RESOLVED[-1][2].path))
-    check(plugin.RESOLVED[-1][1] is False, 'a non-Netflix URL must not be resolved')
+    print('=== play ===')
+    success, item = plugin.RESOLVED[-1]
+    print('setResolvedUrl success=%s' % success)
+    print('path %s' % item.path)
+    print('mime %s' % item.mime)
+    for key in (
+        'inputstream',
+        'inputstream.adaptive.manifest_type',
+        'inputstream.adaptive.license_type',
+        'inputstream.adaptive.license_key',
+    ):
+        print('%s = %s' % (key, item.properties.get(key)))
+    check(success is True, 'play should resolve')
+    check(item.properties.get('inputstream') == 'inputstream.adaptive', 'inputstream property')
+    check(item.properties.get('inputstream.adaptive.manifest_type') == 'mpd', 'manifest type')
+    check(item.properties.get('inputstream.adaptive.license_type') == 'com.widevine.alpha', 'widevine type')
+    check('b{SSM}' in (item.properties.get('inputstream.adaptive.license_key') or ''), 'license challenge placeholder')
+
+    manifest = urllib.request.urlopen(item.path, timeout=5).read().decode('utf-8')
+    print('manifest bytes %s' % len(manifest))
+    print(manifest)
+    check('edef8ba9-79d6-4ace-a3c8-27dcd51d21ed' in manifest, 'MPD should name Widevine')
+    check('https://example.com/video/init.mp4' in manifest, 'MPD should carry the stream URL')
+    license_url = item.properties['inputstream.adaptive.license_key'].split('|', 1)[0]
+    challenge = base64.standard_b64encode(b'cdm-challenge').decode('utf-8')
+    sid = base64.standard_b64encode(b'session-1').decode('utf-8')
+    request = urllib.request.Request(license_url, data=('%s!%s' % (challenge, sid)).encode('utf-8'))
+    license_body = urllib.request.urlopen(request, timeout=5).read()
+    print('license bytes %s' % license_body)
+    check(license_body == LICENSE_BYTES, 'license hop should return the license bytes for the CDM')
 
     print('')
     if failures:

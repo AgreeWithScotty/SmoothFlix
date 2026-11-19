@@ -21,21 +21,53 @@ msgid "Listings"
 msgstr "Listings"
 
 msgctxt "#32002"
-msgid "Saved lists open again without asking the Netflix add-on until they expire."
-msgstr "Saved lists open again without asking the Netflix add-on until they expire."
+msgid "Saved lists open again from disk until they expire."
+msgstr "Saved lists open again from disk until they expire."
 
 msgctxt "#32003"
 msgid "Keep listings cached (minutes)"
 msgstr "Keep listings cached (minutes)"
 
 msgctxt "#32004"
-msgid "Minutes to reuse a list. 0 always asks the Netflix add-on."
-msgstr "Minutes to reuse a list. 0 always asks the Netflix add-on."
+msgid "Minutes to reuse a list. 0 always fetches it again."
+msgstr "Minutes to reuse a list. 0 always fetches it again."
 
 msgctxt "#32005"
 msgid "Clear listing cache"
 msgstr "Clear listing cache"
 
 msgctxt "#32006"
-msgid "Delete saved lists so the next open asks the Netflix add-on again."
-msgstr "Delete saved lists so the next open asks the Netflix add-on again."
+msgid "Delete saved lists so the next open fetches them again."
+msgstr "Delete saved lists so the next open fetches them again."
+
+msgctxt "#32010"
+msgid "Account"
+msgstr "Account"
+
+msgctxt "#32011"
+msgid "Stored only in this Kodi profile."
+msgstr "Stored only in this Kodi profile."
+
+msgctxt "#32012"
+msgid "Email"
+msgstr "Email"
+
+msgctxt "#32013"
+msgid "Netflix email for this device."
+msgstr "Netflix email for this device."
+
+msgctxt "#32014"
+msgid "Password"
+msgstr "Password"
+
+msgctxt "#32015"
+msgid "Stored in this Kodi profile and sent only when signing in."
+msgstr "Stored in this Kodi profile and sent only when signing in."
+
+msgctxt "#32016"
+msgid "Sign out"
+msgstr "Sign out"
+
+msgctxt "#32017"
+msgid "Forget the saved session on this device."
+msgstr "Forget the saved session on this device."

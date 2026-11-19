@@ -1,6 +1,33 @@
 <?xml version="1.0" ?>
 <settings version="1">
     <section id="plugin.video.smoothflix">
+        <category id="account" label="32010" help="32011">
+            <group id="1" label="32010">
+                <setting id="email" type="string" label="32012" help="32013">
+                    <level>0</level>
+                    <default/>
+                    <constraints>
+                        <allowempty>true</allowempty>
+                    </constraints>
+                    <control type="edit" format="string"/>
+                </setting>
+                <setting id="password" type="string" label="32014" help="32015">
+                    <level>0</level>
+                    <default/>
+                    <constraints>
+                        <allowempty>true</allowempty>
+                    </constraints>
+                    <control type="edit" format="string">
+                        <hidden>true</hidden>
+                    </control>
+                </setting>
+                <setting id="logout" type="action" label="32016" help="32017">
+                    <level>0</level>
+                    <data>RunPlugin(plugin://plugin.video.smoothflix/logout)</data>
+                    <control type="button" format="action"/>
+                </setting>
+            </group>
+        </category>
         <category id="listings" label="32001" help="32002">
             <group id="1" label="32001">
                 <setting id="cache_minutes" type="integer" label="32003" help="32004">
