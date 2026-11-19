@@ -27,21 +27,24 @@
     </assets>
   </extension>
 </addon>
-<addon id="repository.smoothflix" name="SmoothFlix Repository" version="1.0.0" provider-name="Scott">
+<addon id="repository.smoothflix" name="SmoothFlix Repository" version="1.0.1" provider-name="Scott">
+  <requires>
+    <import addon="xbmc.addon" version="21.0.0"/>
+  </requires>
   <extension point="xbmc.addon.repository" name="SmoothFlix Repository">
     <dir>
-      <info compressed="false">https://raw.githubusercontent.com/AgreeWithScotty/SmoothFlix/main/addons.xml</info>
-      <checksum>https://raw.githubusercontent.com/AgreeWithScotty/SmoothFlix/main/addons.xml.md5</checksum>
-      <datadir zip="true">https://raw.githubusercontent.com/AgreeWithScotty/SmoothFlix/main</datadir>
+      <info compressed="false">https://agreewithscotty.github.io/ScottyWins/addons.xml</info>
+      <checksum verify="md5">https://agreewithscotty.github.io/ScottyWins/addons.xml.md5</checksum>
+      <datadir zip="true">https://agreewithscotty.github.io/ScottyWins/</datadir>
     </dir>
   </extension>
   <extension point="xbmc.addon.metadata">
     <summary lang="en_GB">Install and update SmoothFlix</summary>
-    <description lang="en_GB">Official repository for the SmoothFlix add-on. Install this once from a zip file, then install SmoothFlix from Kodi's add-on browser. Updates are published from this repository.</description>
+    <description lang="en_GB">Official repository for the SmoothFlix add-on. Updates are published from the ScottyWins index.</description>
     <platform>all</platform>
     <license>GPL-3.0-only</license>
-    <source>https://github.com/AgreeWithScotty/SmoothFlix</source>
-    <news>v1.0.0 (2026-11-19)[CR]- Initial SmoothFlix repository.</news>
+    <source>https://github.com/AgreeWithScotty/ScottyWins</source>
+    <news>v1.0.1 (2026-11-19)[CR]- Repository index moved to ScottyWins.</news>
     <assets>
       <icon>icon.png</icon>
       <fanart>fanart.jpg</fanart>
