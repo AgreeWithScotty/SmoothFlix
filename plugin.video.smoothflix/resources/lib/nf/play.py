@@ -221,13 +221,18 @@ def serve():
     monitor = xbmc.Monitor()
     player = xbmc.Player()
     overlay = None
+    overlay_failed = False
     while not monitor.abortRequested():
         if _playing_ours(player):
-            if overlay is None:
+            if overlay is None and not overlay_failed:
                 overlay = playback_overlay()
-            overlay.tick(player)
-        elif overlay is not None:
-            overlay.close()
-            overlay = None
+                overlay_failed = overlay is None
+            if overlay is not None:
+                overlay.tick(player)
+        else:
+            if overlay is not None:
+                overlay.close()
+                overlay = None
+            overlay_failed = False
         if monitor.waitForAbort(0.5):
             break

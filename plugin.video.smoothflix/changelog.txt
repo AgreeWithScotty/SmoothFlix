@@ -1,3 +1,7 @@
+v0.3.1 (2026-11-20)
+- Aurora Cinema windows are SmoothFlixHome.xml, SmoothFlixTitle.xml and SmoothFlixPlayer.xml so Kodi 21 Estuary does not open its own Home.xml.
+- If a window fails to open, the full traceback is written to the Kodi log and the error text is shown.
+
 v0.3.0 (2026-11-19)
 - Aurora Cinema home, title page and player overlay, drawn by the add-on.
 - Focus changes the hero art with Kodi's image fade and a charcoal tint.

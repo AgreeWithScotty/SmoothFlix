@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon id="plugin.video.smoothflix" name="SmoothFlix" version="0.3.0" provider-name="Scott">
+<addon id="plugin.video.smoothflix" name="SmoothFlix" version="0.3.1" provider-name="Scott">
   <requires>
     <import addon="xbmc.python" version="3.0.1"/>
     <import addon="inputstream.adaptive" version="21.5.0"/>
@@ -19,7 +19,7 @@
     <platform>all</platform>
     <license>GPL-3.0-only</license>
     <source>https://github.com/AgreeWithScotty/SmoothFlix</source>
-    <news>v0.3.0 (2026-11-19)[CR]- Aurora Cinema home, title page and player overlay.[CR]- Classic directory list remains available in settings.</news>
+    <news>v0.3.1 (2026-11-20)[CR]- Aurora Cinema windows use SmoothFlixHome.xml, SmoothFlixTitle.xml and SmoothFlixPlayer.xml so Kodi 21 Estuary does not load its own Home.xml.[CR]- A window that fails to open logs the traceback and shows the error.</news>
     <assets>
       <icon>icon.png</icon>
       <fanart>fanart.jpg</fanart>
