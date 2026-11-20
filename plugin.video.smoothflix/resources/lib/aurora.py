@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Aurora Cinema windows. Layout is skin XML. Python only fills properties."""
 
+import traceback
 from urllib.parse import urlencode
 
 import xbmc
@@ -29,6 +30,40 @@ _NAV = {301: 'movies', 302: 'shows', 303: 'mylist'}
 
 def _addon_path():
     return xbmcaddon.Addon(ADDON_ID).getAddonInfo('path')
+
+
+def _concise_error(exc):
+    detail = ' '.join(str(exc).split())
+    if not detail:
+        return exc.__class__.__name__
+    text = '%s: %s' % (exc.__class__.__name__, detail)
+    if len(text) > 180:
+        text = text[:177] + '...'
+    return text
+
+
+def _window_failure(exc, window=None):
+    """Log the traceback and show one line. Kodi has already failed the window."""
+    if window is not None and getattr(window, '_failure_reported', False):
+        return
+    if window is not None:
+        window._failure_reported = True
+    xbmc.log('[SmoothFlix]\n' + traceback.format_exc(), xbmc.LOGERROR)
+    xbmcgui.Dialog().ok('SmoothFlix', _concise_error(exc))
+
+
+def _guard_window(method):
+    def wrapped(self, *args, **kwargs):
+        try:
+            return method(self, *args, **kwargs)
+        except Exception as exc:
+            _window_failure(exc, self)
+            try:
+                self.close()
+            except Exception:
+                pass
+            return None
+    return wrapped
 
 
 def _cached(key, fn):
@@ -95,6 +130,7 @@ class AuroraHome(xbmcgui.WindowXML):
         self._videos = []
         xbmcgui.WindowXML.__init__(self, *args)
 
+    @_guard_window
     def onInit(self):
         self._load(self.row)
         if self._videos:
@@ -194,6 +230,7 @@ class TitleWindow(xbmcgui.WindowXML):
         self.video = {}
         xbmcgui.WindowXML.__init__(self, *args)
 
+    @_guard_window
     def onInit(self):
         video = self.video or {}
         _kicker, title = _split_title(video.get('title') or '')
@@ -263,16 +300,28 @@ def _play(video):
 
 
 def open_home():
-    window = AuroraHome('Home.xml', _addon_path(), 'Default', '1080i')
-    window.doModal()
-    del window
+    window = None
+    try:
+        window = AuroraHome('SmoothFlixHome.xml', _addon_path(), 'Default', '1080i')
+        window.doModal()
+    except Exception as exc:
+        _window_failure(exc, window)
+    finally:
+        if window is not None:
+            del window
 
 
 def open_title(video):
-    window = TitleWindow('Title.xml', _addon_path(), 'Default', '1080i')
-    window.video = video
-    window.doModal()
-    del window
+    window = None
+    try:
+        window = TitleWindow('SmoothFlixTitle.xml', _addon_path(), 'Default', '1080i')
+        window.video = video
+        window.doModal()
+    except Exception as exc:
+        _window_failure(exc, window)
+    finally:
+        if window is not None:
+            del window
 
 
 class PlayerOverlay(xbmcgui.WindowXMLDialog):
@@ -280,6 +329,7 @@ class PlayerOverlay(xbmcgui.WindowXMLDialog):
         self.info = {}
         xbmcgui.WindowXMLDialog.__init__(self, *args)
 
+    @_guard_window
     def onInit(self):
         info = self.info or {}
         self.setProperty('Title', (info.get('title') or 'SMOOTHFLIX').upper())
@@ -333,11 +383,26 @@ def playback_overlay():
     """Modeless player chrome. The service calls tick() while a title plays."""
     from resources.lib.nf.auth import _read_json
     record = _read_json('playback.json') or {}
-    window = PlayerOverlay('Player.xml', _addon_path(), 'Default', '1080i')
-    window.info = {
-        'title': record.get('title') or '',
-        'meta': record.get('meta') or '',
-    }
-    window.show()
-    window.onInit()
+    window = None
+    failed = False
+    try:
+        window = PlayerOverlay('SmoothFlixPlayer.xml', _addon_path(), 'Default', '1080i')
+        window.info = {
+            'title': record.get('title') or '',
+            'meta': record.get('meta') or '',
+        }
+        window.show()
+        window.onInit()
+        failed = getattr(window, '_failure_reported', False)
+    except Exception as exc:
+        _window_failure(exc, window)
+        failed = True
+    if failed or window is None:
+        if window is not None:
+            try:
+                window.close()
+            except Exception:
+                pass
+            del window
+        return None
     return window

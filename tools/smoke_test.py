@@ -636,7 +636,7 @@ def main():
 
     import xml.etree.ElementTree as ET
     skin = os.path.join(ADDON, 'resources', 'skins', 'Default', '1080i')
-    for name in ('Font.xml', 'Home.xml', 'Title.xml', 'Player.xml'):
+    for name in ('Font.xml', 'SmoothFlixHome.xml', 'SmoothFlixTitle.xml', 'SmoothFlixPlayer.xml'):
         ET.parse(os.path.join(skin, name))
         print('parsed %s' % name)
 
@@ -661,7 +661,7 @@ def main():
         print('    thumb %s' % card.art.get('thumb'))
         if card.info.data.get('resume'):
             print('    progress %r' % (card.info.data['resume'],))
-    check(home.xml == 'Home.xml', 'home should load Home.xml')
+    check(home.xml == 'SmoothFlixHome.xml', 'home should load SmoothFlixHome.xml')
     check(row.size() == 2, 'home row should list both cached titles')
     check(home.getProperty('HeroTitle') == 'HARBOR LIGHTS', 'hero title')
     check(home.getProperty('HeroFanart').startswith('https://'), 'hero fanart is a url')
@@ -677,12 +677,12 @@ def main():
     print('meta %s' % title.getProperty('Meta'))
     print('synopsis %s' % title.getProperty('Synopsis'))
     print('related %s' % title.getControl(210).size())
-    check(title.xml == 'Title.xml', 'title window')
+    check(title.xml == 'SmoothFlixTitle.xml', 'title window')
     check(title.getProperty('Kicker') == 'A SERIES', 'series kicker')
     check(title.getProperty('HeroTitle') == 'HARBOR LIGHTS', 'title page name')
     check('secret schedule' in title.getProperty('Synopsis'), 'synopsis copied onto the title page')
 
-    overlay = PlayerOverlay('Player.xml', ADDON, 'Default', '1080i')
+    overlay = PlayerOverlay('SmoothFlixPlayer.xml', ADDON, 'Default', '1080i')
     overlay.info = {
         'title': 'The Revenant',
         'meta': '2015 • Director',
@@ -700,7 +700,7 @@ def main():
     print('total %s' % overlay.getProperty('Total'))
     print('progress %s' % overlay.getControl(400).percent)
     print('volume %s' % overlay.getControl(520).percent)
-    check(overlay.xml == 'Player.xml', 'player layout')
+    check(overlay.xml == 'SmoothFlixPlayer.xml', 'player layout')
     check(overlay.getProperty('Title') == 'THE REVENANT', 'player title')
     check(overlay.getProperty('Meta') == '2015 • Director', 'player meta')
     check(overlay.getProperty('Elapsed') == '12:34', 'elapsed time')
